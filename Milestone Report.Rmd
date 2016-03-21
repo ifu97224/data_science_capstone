@@ -1,0 +1,543 @@
+Data Science Capstone Project - Milestone Report
+=======================================================================
+
+### Background and Objectives
+
+The final outcome of this project will be an app developed in Shiny that demonstrates a predictive keyboard able to predict the next word of a sentence.  The objectives of this milestone report are to:
+
+*  Demonstrate that the data has been succesfully downloaded and imported into R
+*  Produce some summary statistics, plots and tables on the imported files
+*  Document the steps taken to sample the data and clean the file
+*  Understand the frequency of words and word pairs and the associations between words in the files
+*  Discuss initial plans for the development of the predictive algorithm
+
+### Data Processing
+
+Three separate data files were provided in order to develop the predictive model.  These included text from Twitter, Blogs and Newsfeeds.  The data were downloaded and unzipped from the following location <https://d396qusza40orc.cloudfront.net/dsscapstone/dataset/Coursera-SwiftKey.zip>).
+
+Since the datasets are very large each one was read in chunks by embedding the readLines function into a for loop.  The following code illustrates how this was accomplished on the Twitter dataset:
+
+```{r eval = FALSE}
+
+# set the connection and read the first 100 lines
+con <- file("en_US.twitter.txt", "r") 
+nrows <- 100
+twitter_data <- readLines(con, nrows) 
+
+# loop over the data reading 100 lines at a time up to 4,000,000 records
+for(i in 1:40000) {
+  next_lines <- readLines(con,nrows,ok = T)
+  twitter_data <- c(twitter_data,next_lines)
+}
+close(con)
+
+```
+
+```{r cache=TRUE, eval = FALSE, echo=FALSE}
+
+#### FULL CODE FOR HOW THE DATA WAS READ INTO R ####
+
+### start with the twitter data
+
+# set the connection and read the first 100 lines
+con <- file("en_US.twitter.txt", "r") 
+nrows <- 100
+twitter_data <- readLines(con, nrows) 
+
+# loop over the data reading 100 lines at a time up to 4,000,000 records
+for(i in 1:40000) {
+  next_lines <- readLines(con,nrows,ok = T)
+  twitter_data <- c(twitter_data,next_lines)
+}
+close(con)
+# NOTE:  Data has 2,360,148 rows
+
+
+### import the blogs
+
+# set the connection and read the first 100 lines
+con <- file("en_US.blogs.txt", "r") 
+nrows <- 100
+blogs_data <- readLines(con, nrows) 
+
+# loop over the data reading 100 lines at a time up to 4,000,000 records
+for(i in 1:40000) {
+  next_lines <- readLines(con,nrows,ok = T)
+  blogs_data <- c(blogs_data,next_lines)
+}
+close(con)
+
+
+### import the news
+
+# set the connection and read the first 100 lines
+con <- file("en_US.news.txt", "r") 
+nrows <- 100
+news_data <- readLines(con, nrows) 
+
+# loop over the data reading 100 lines at a time up to 4,000,000 records
+for(i in 1:40000) {
+  next_lines <- readLines(con,nrows,ok = T)
+  news_data <- c(news_data,next_lines)
+}
+close(con)
+
+save(twitter_data, file='twitter_data.Rda')
+save(blogs_data, file='blogs_data.Rda')
+save(news_data, file='newss_data.Rda')
+
+```
+
+
+The following basic summaries were then calculated on the downloaded data:
+
+1.  The distribution of the number of words in each file
+2.  The total number of observations in each file
+3.  The distribution of the number of characters in each line of the files
+4.  The size of each of the files
+
+The plots below visualize these summary statistics:
+
+```{r eval = TRUE, echo = FALSE,cache=TRUE,message=FALSE,warning=FALSE,fig.height=5,fig.width=9,fig.align="center"}
+
+library(tm)
+library(SnowballC)
+library(wordcloud)
+library(RColorBrewer)
+library(stringr)
+library(ggplot2)
+library(scales)
+library(gridExtra)
+
+load("/users/Richard/Documents/Coursera Data Science Track/Data Science Capstone/twitter_data.Rda")
+load("/users/Richard/Documents/Coursera Data Science Track/Data Science Capstone/blogs_data.Rda")
+load("/users/Richard/Documents/Coursera Data Science Track/Data Science Capstone/newss_data.Rda")
+
+#### count the number of words in each of the lines in each of the files ####
+nwords <- function(string, pseudo = F) {
+  ifelse(pseudo,
+         pattern <- "\\S+",
+         pattern <- "[[:alpha:]]+")
+  str_count(string, pattern)
+}
+
+twitter_word_count <- data.frame(nwords(twitter_data,pseudo=T))
+names(twitter_word_count)[names(twitter_word_count)=="nwords.twitter_data..pseudo...T."] <- "word_count"
+data_source <- rep("Twitter",nrow(twitter_word_count))
+twitter_word_count <- cbind(twitter_word_count,data_source)
+
+blogs_word_count <- data.frame(nwords(blogs_data,pseudo=T))
+names(blogs_word_count)[names(blogs_word_count)=="nwords.blogs_data..pseudo...T."] <- "word_count"
+data_source <- rep("Blogs",nrow(blogs_word_count))
+blogs_word_count <- cbind(blogs_word_count,data_source)
+
+news_word_count <- data.frame(nwords(news_data,pseudo=T))
+names(news_word_count)[names(news_word_count)=="nwords.news_data..pseudo...T."] <- "word_count"
+data_source <- rep("News",nrow(news_word_count))
+news_word_count <- cbind(news_word_count,data_source)
+
+word_counts <- rbind(twitter_word_count,blogs_word_count,news_word_count)
+
+# create box plots of word counts by source
+
+# prepare the data
+word_counts$data_source <- as.factor(word_counts$data_source)
+
+a <- ggplot(word_counts,aes(data_source,word_count)) +
+  geom_boxplot(fill="orange") +
+  theme_bw(base_family = "Arial") + 
+  ggtitle("Number of Words by Data Source") +
+  xlab("Data Source") + 
+  ylab("Number of Words") +
+  theme(axis.title.y=element_text(vjust=1), 
+        axis.title.x=element_text(vjust=-0.5),
+        plot.title=element_text(vjust=1))
+
+# compute lower and upper whiskers
+ylim1 = boxplot.stats(word_counts$word_count)$stats[c(1, 5)]
+
+# scale y limits based on ylim1
+a <- a + coord_cartesian(ylim = ylim1*1.05)
+
+### Create barplot of the number of records by data source ###
+
+b <- ggplot(word_counts, aes(data_source)) +
+     geom_bar(fill="orange") + 
+     theme_bw(base_family = "Arial") + 
+     ggtitle("Number of Observations by Data Source") +
+     xlab("Data Source") + 
+     ylab("Number of Observations") +
+     theme(axis.title.y=element_text(vjust=1), 
+           axis.title.x=element_text(vjust=-0.5), 
+           plot.title=element_text(vjust=1)) +
+     scale_y_continuous(labels = comma)
+
+
+#### count the number of characters in each of the lines in each of the files ####
+
+twitter_char <- data.frame(nchar(twitter_data, type = "chars", allowNA = FALSE))
+names(twitter_char)[names(twitter_char)=="nchar.twitter_data..type....chars...allowNA...FALSE."] <- "number_characters"
+data_source <- rep("Twitter",nrow(twitter_char))
+twitter_char <- cbind(twitter_char,data_source)
+
+blogs_char <- data.frame(nchar(blogs_data, type = "chars", allowNA = FALSE))
+names(blogs_char)[names(blogs_char)=="nchar.blogs_data..type....chars...allowNA...FALSE."] <- "number_characters"
+data_source <- rep("Blogs",nrow(blogs_char))
+blogs_char <- cbind(blogs_char,data_source)
+
+news_char <- data.frame(nchar(news_data, type = "chars", allowNA = FALSE))
+names(news_char)[names(news_char)=="nchar.news_data..type....chars...allowNA...FALSE."] <- "number_characters"
+data_source <- rep("News",nrow(news_char))
+news_char <- cbind(news_char,data_source)
+
+character_counts <- rbind(twitter_char,blogs_char,news_char)
+
+# create box plots of character counts by source
+
+# prepare the data
+character_counts$data_source <- as.factor(character_counts$data_source)
+
+c <- ggplot(character_counts,aes(data_source,number_characters)) +
+     geom_boxplot(fill="orange") +
+     theme_bw(base_family = "Arial") + 
+     ggtitle("Number of Characters by Data Source") +
+     xlab("Data Source") + 
+     ylab("Number of Characters") +
+     theme(axis.title.y=element_text(vjust=1), 
+           axis.title.x=element_text(vjust=-0.5), 
+           plot.title=element_text(vjust=1))
+
+# compute lower and upper whiskers
+ylim1 = boxplot.stats(character_counts$number_characters)$stats[c(1, 5)]
+
+# scale y limits based on ylim1
+c <- c + coord_cartesian(ylim = ylim1*1.05)
+
+#### size of files ####
+file_size <- as.numeric(object.size(twitter_data))
+data_source <- "Twitter"
+twitter_details <- data.frame(data_source,file_size)
+
+file_size <- as.numeric(object.size(blogs_data))
+data_source <- "Blogs"
+blogs_details <- data.frame(data_source,file_size)
+
+file_size <- as.numeric(object.size(news_data))
+data_source <- "News"
+news_details <- data.frame(data_source,file_size)
+
+file_sizes <- rbind(twitter_details,blogs_details,news_details)
+
+d <- ggplot(file_sizes, aes(x = data_source, y = file_size)) +
+     geom_bar(fill="orange",stat = 'identity') + 
+     theme_bw(base_family = "Arial") + 
+     ggtitle("Size of File (Bytes) by Data Source") +
+     xlab("Data Source") + 
+     ylab("Size of File (Bytes") +
+     theme(axis.title.y=element_text(vjust=1), 
+           axis.title.x=element_text(vjust=-0.5),  
+           plot.title=element_text(vjust=1)) +
+     scale_y_continuous(labels = comma)
+
+grid.arrange(a,b,c,d)
+
+```
+
+The plots illustrate that:
+
+*  The number of observations in the Twitter dataset was significantly larger than the Blogs and Newsfeeds but the average number of words and characters was significantly smaller (as would be expected)
+*  The average number of words in characters in the Blogs and Newsfeeds was similar but the distribution is much larger for Blogs
+
+### Data Sampling and Cleaning
+
+As the dataset is very large a 1% sample was taken for the exploratory analysis and developement of the predictive algorithm.  The code below shows how the three sources of data were set together and the sample was taken:
+
+```{r echo = TRUE, eval = TRUE}
+# set the documents together
+all_text_vector <- c(twitter_data,news_data,blogs_data)
+rm(list = c("twitter_data","news_data","blogs_data"))
+
+# take a 1% sample of the data to write and test the code
+text_sample <- sample(all_text_vector, length(all_text_vector)*0.01, replace = FALSE)
+
+```
+
+In order to explore the data and build the algorithm the following data cleansing steps were taken:
+
+1.  Make all text lower case
+2.  Remove colons, hypens, numbers and all other punctuation
+3.  Removing profanity (NOTE:  The list of profanity was sourced from the following website <http://fffff.at/googles-official-list-of-bad-words/>
+4.  Stripped white-space
+
+Although stemming and removing stop words is common in text mining tasks since the objective of this algorithm was 'next word' predicting these cleaning steps were not appropriate.
+
+```{r echo = FALSE, eval = TRUE, cache=TRUE}
+
+library(tm)
+library(SnowballC)
+library(wordcloud)
+library(RColorBrewer)
+library(stringr)
+library(ggplot2)
+library(scales)
+library(gridExtra)
+
+# make all text lower case
+text_sample <- tolower(text_sample)
+
+# create the corpus
+corpus_sample_text <- Corpus(VectorSource(text_sample),
+                      readerControl = list(reader = readPlain,
+                                           language = "en_US",
+                                           load = TRUE))
+
+# view some sample records
+#writeLines(as.character(corpus_sample_text[[30]]))
+#writeLines(as.character(corpus_sample_text[[4600]]))
+#writeLines(as.character(corpus_sample_text[[3000]]))
+
+# remove colons and hypens
+toSpace <- content_transformer(function(x, pattern) {return (gsub(pattern, " ", x))})
+corpus_sample_text <- tm_map(corpus_sample_text, toSpace, "-")
+corpus_sample_text <- tm_map(corpus_sample_text, toSpace, ":")
+
+# remove all other punctuation
+corpus_sample_text <- tm_map(corpus_sample_text, removePunctuation)
+corpus_sample_text <- tm_map(corpus_sample_text, toSpace, "’")
+corpus_sample_text <- tm_map(corpus_sample_text, toSpace, "‘")
+corpus_sample_text <- tm_map(corpus_sample_text, toSpace, " -")
+
+# remove numbers
+corpus_sample_text <- tm_map(corpus_sample_text, removeNumbers)
+
+# remove profanity:  NOTE:  List taken from http://fffff.at/googles-official-list-of-bad-words/
+
+profanity <- c("4r5e","5h1t","5hit","a55","anal","anus","ar5e","arrse","arse","ass","ass-fucker","asses",
+               "assfucker","assfukka","asshole","assholes","asswhole","a_s_s","b!tch","b00bs","b17ch","b1tch",
+                "ballbag","balls","ballsack","bastard","beastial","beastiality","bellend","bestial","bestiality",
+                 "bi+ch","biatch","bitch","bitcher","bitchers","bitches","bitchin","bitching","bloody","blow job",
+                 "blowjob","blowjobs","boiolas","bollock","bollok","boner","boob","boobs","booobs","boooobs","booooobs",
+                 "booooooobs","buceta","bugger","bum","bunny fucker","butt","butthole","buttmuch","buttplug","c0ck",
+                 "c0cksucker","carpet muncher","cawk","chink","cipa","cl1t","clit","clitoris","clits","cnut",
+                 "cock","cock-sucker","cockface","cockhead","cockmunch","cockmuncher","cocks","cocksuck","cocksucked",
+                 "cocksucker","cocksucking","cocksucks","cocksuka","cocksukka","cok","cokmuncher","coksucka",
+                 "coon","cox","crap","cum","cummer","cumming","cums","cumshot","cunilingus","cunillingus","cunnilingus",
+                 "cunt","cuntlick","cuntlicker","cuntlicking","cunts","cyalis","cyberfuc","cyberfuck","cyberfucked",
+                 "cyberfucker","cyberfuckers","cyberfucking","d1ck","damn","dick","dickhead","dildo","dildos",
+                 "dink","dinks","dirsa","dlck","dog-fucker","doggin","dogging","donkeyribber","doosh","duche",
+                 "dyke","ejaculate","ejaculated","ejaculates","ejaculating","ejaculatings","ejaculation","ejakulate",
+                 "f u c k","f u c k e r","f4nny","fag","fagging","faggitt","faggot","faggs","fagot","fagots",
+                 "fags","fanny","fannyflaps","fannyfucker","fanyy","fatass","fcuk","fcuker","fcuking","feck","fecker",
+                 "felching","fellate","fellatio","fingerfuck","fingerfucked","fingerfucker","fingerfuckers","fingerfucking",
+                 "fingerfucks","fistfuck","fistfucked","fistfucker","fistfuckers","fistfucking","fistfuckings","fistfucks",
+                 "flange","fook","fooker","fuck","fucka","fucked","fucker","fuckers","fuckhead","fuckheads","fuckin",
+                 "fucking","fuckings","fuckingshitmotherfucker","fuckme","fucks","fuckwhit","fuckwit","fudge packer",
+                 "fudgepacker","fuk","fuker","fukker","fukkin","fuks","fukwhit","fukwit","fux","fux0r","f_u_c_k",
+                 "gangbang","gangbanged","gangbangs","gaylord","gaysex","goatse","god-dam","god-damned","goddamn",
+                 "goddamned","hardcoresex","hell","heshe","hoar","hoare","hoer","homo","hore","horniest","horny",
+                 "hotsex","jack-off","jackoff","jap","jerk-off","jism","jiz","jizm","jizz","kawk","knob","knobead",
+                 "knobed","knobend","knobhead","knobjocky","knobjokey","kock","kondum","kondums","kum","kummer",
+                 "kumming","kums","kunilingus","l3i+ch","l3itch","labia","lmfao","lust","lusting","m0f0","m0fo",
+                 "m45terbate","ma5terb8","ma5terbate","masochist","master-bate","masterb8","masterbat*","masterbat3",
+                 "masterbate","masterbation","masterbations","masturbate","mo-fo","mof0","mofo","mothafuck","mothafucka",
+                 "mothafuckas","mothafuckaz","mothafucked","mothafucker","mothafuckers","mothafuckin","mothafucking",
+                 "mothafuckings","mothafucks","mother fucker","motherfuck","motherfucked","motherfucker","motherfuckers",
+                 "motherfuckin","motherfucking","motherfuckings","motherfuckka","motherfucks","muff","mutha","muthafecker",
+                 "muthafuckker","muther","mutherfucker","n1gga","n1gger","nazi","nigg3r","nigg4h","nigga","niggah",
+                 "niggas","niggaz","nigger","niggers","nob","nob jokey","nobhead","nobjocky","nobjokey","numbnuts",
+                 "nutsack","orgasim","orgasims","orgasm","orgasms","p0rn","pawn","pecker","penis","penisfucker","phonesex",
+                 "phuck","phuk","phuked","phuking","phukked","phukking","phuks","phuq","pigfucker","pimpis","piss",
+                 "pissed","pisser","pissers","pisses","pissflaps","pissin","pissing","pissoff","poop","porn",
+                 "porno","pornography","pornos","prick","pricks","pron","pube","pusse","pussi","pussies","pussy",
+                 "pussys","rectum","retard","rimjaw","rimming","s hit","s.o.b.","sadist","schlong","screwing","scroat",
+                 "scrote","scrotum","semen","sex","sh!+","sh!t","sh1t","shag","shagger","shaggin","shagging",
+                 "shemale","shi+","shit","shitdick","shite","shited","shitey","shitfuck","shitfull","shithead","shiting",
+                 "shitings","shits","shitted","shitter","shitters","shitting","shittings","shitty","skank","slut",
+                 "sluts","smegma","smut","snatch","son-of-a-bitch","spac","spunk","s_h_i_t","t1tt1e5","t1tties",
+                 "teets","teez","testical","testicle","tit","titfuck","tits","titt","tittie5","tittiefucker",
+                 "titties","tittyfuck","tittywank","titwank","tosser","turd","tw4t","twat","twathead","twatty",
+                 "twunt","twunter","v14gra","v1gra","vagina","viagra","vulva","w00se","wang","wank","wanker",
+                 "wanky","whoar","whore","willies","willy","xrated","xxx")
+
+corpus_sample_text <- tm_map(corpus_sample_text, removeWords, profanity)
+
+# strip white space
+corpus_sample_text <- tm_map(corpus_sample_text, stripWhitespace)
+
+```
+
+### Frequency of terms
+
+The following analysis aims to understand the frequency of words and word pairs in the sample file.  The report will show the top uni-grams (single terms), bi-grams (pairs of terms) and tri-grams (triplets of terms).
+
+#### Uni-grams
+
+The following code creates a document term matrix from the sample files and shows the first 2 observations and 10 columns of the resulting file.  Note that the code also removes very sparse terms and words >40 characters.
+
+```{r echo = TRUE, eval = TRUE, message=FALSE}
+
+library(tm)
+
+# create the document term matrix - limit the maximum word length to 40 and remove very sparse terms
+sample_dtm <- removeSparseTerms(DocumentTermMatrix(corpus_sample_text, 
+                                                   control = list(wordLengths = c(1,40))),0.9999)
+
+# look at some examples
+inspect(sample_dtm[1:10,1:10])
+
+```
+
+NOTE:  Removing the sparse terms removed 83,312 (8%) of the terms
+
+The table below shows the top 20 terms and their frequencies:
+
+```{r echo = FALSE, eval = TRUE}
+
+# now get the counts of the terms
+term_counts <- as.matrix(sample_dtm)
+term_counts <- colSums(term_counts)
+term_counts <- as.data.frame(term_counts)
+term_counts$term <- rownames(term_counts)
+names(term_counts)[names(term_counts)=="term_counts"] <- "term_frequency"
+term_counts <- term_counts[order(-term_counts$term_frequency),]
+term_counts[1:20,]
+
+term_counts$cumperc <- cumsum(term_counts$term_frequency)/sum(term_counts$term_frequency)
+median <- nrow(subset(term_counts,term_counts$cumperc <= 0.5))
+percentile_90 <- nrow(subset(term_counts,term_counts$cumperc <= 0.9))
+
+```
+
+Based on the cleaned sample with the sparse terms removed 105 terms cover 50% of the words in the files and 3,602 terms cover 90% of the words in the files.  
+
+The Wordcloud below visualizes the freqency of the uni-grams in the sample file:
+
+```{r echo = FALSE, eval = TRUE, align = "center",message=FALSE}
+
+library(wordcloud)
+library(RColorBrewer)
+
+wordcloud(corpus_sample_text, 
+          max.words = 400, 
+          random.order = FALSE,
+          colors = brewer.pal(8, "Dark2"),
+          scale=c(5,0.5),
+          rot.per=0.35)
+```
+
+#### Bi-grams
+
+The following code was used to remove sparse terms, generate bi-grams and show a sample of the output:
+
+```{r echo = TRUE, eval = TRUE,message=FALSE}
+library(tm)
+
+BigramTokenizer <-
+  function(x)
+    unlist(lapply(ngrams(words(x), 2), paste, collapse = " "), use.names = FALSE)
+
+sample_text_bigram <- TermDocumentMatrix(corpus_sample_text, control = list(tokenize = BigramTokenizer))
+inspect(removeSparseTerms(sample_text_bigram[1:10, 1:10], 0.99))
+sample_text_bigram <- removeSparseTerms(sample_text_bigram, 0.99)
+
+```
+
+The table below shows the frequency counts of the top 20 bi-grams:
+
+```{r echo = FALSE, eval = TRUE}
+
+# now get the counts of the terms
+bigram_counts <- as.matrix(sample_text_bigram)
+counts <- as.data.frame(rowSums(bigram_counts))
+bigram_counts <- as.data.frame(bigram_counts)
+bigram_counts$bigram_term <- rownames(bigram_counts)
+bigram_counts <- cbind(bigram_counts$bigram_term,counts)
+names(bigram_counts)[names(bigram_counts)=="rowSums(bigram_counts)"] <- "term_frequency"
+names(bigram_counts)[names(bigram_counts)=="bigram_counts$bigram_term"] <- "bigram_term"
+bigram_counts <- bigram_counts[order(-bigram_counts$term_frequency),]
+bigram_counts[1:20,]
+
+```
+
+The Wordcloud below visualizes the freqency of the bi-grams in the sample file:
+
+```{r echo = FALSE, eval = TRUE,message=FALSE,warning=FALSE, align = "center",message=FALSE}
+
+library(wordcloud)
+library(RColorBrewer)
+
+wordcloud(bigram_counts$bigram_term,
+          freq = bigram_counts$term_frequency,
+          max.words = 400, 
+          random.order = FALSE,
+          colors = brewer.pal(8, "Dark2"),
+          scale=c(5,0.5),
+          rot.per=0.35)
+```
+
+#### Tri-grams
+
+The following code was used to remove sparse terms, generate tri-grams and show a sample of the output:
+
+```{r echo = TRUE, eval = TRUE, align = "center",message=FALSE}
+
+library(tm)
+
+TrigramTokenizer <-
+  function(x)
+    unlist(lapply(ngrams(words(x), 3), paste, collapse = " "), use.names = FALSE)
+
+sample_text_trigram <- TermDocumentMatrix(corpus_sample_text, control = list(tokenize = TrigramTokenizer))
+inspect(removeSparseTerms(sample_text_trigram[1:10, 1:10], 0.999))
+sample_text_trigram <- removeSparseTerms(sample_text_trigram, 0.999)
+
+```
+
+
+The table below shows the frequency counts of the top 20 tri-grams:
+
+```{r echo = FALSE, eval = TRUE}
+
+# now get the counts of the terms
+trigram_counts <- as.matrix(sample_text_trigram)
+counts <- as.data.frame(rowSums(trigram_counts))
+trigram_counts <- as.data.frame(trigram_counts)
+trigram_counts$trigram_term <- rownames(trigram_counts)
+trigram_counts <- cbind(trigram_counts$trigram_term,counts)
+names(trigram_counts)[names(trigram_counts)=="rowSums(trigram_counts)"] <- "term_frequency"
+names(trigram_counts)[names(trigram_counts)=="trigram_counts$trigram_term"] <- "trigram_term"
+trigram_counts <- trigram_counts[order(-trigram_counts$term_frequency),]
+trigram_counts[1:20,]
+
+```
+
+The Wordcloud below visualizes the freqency of the bi-grams in the sample file:
+
+```{r echo = FALSE, eval = TRUE, warning=FALSE,message=FALSE,align="center"}
+
+library(wordcloud)
+library(RColorBrewer)
+
+wordcloud(trigram_counts$trigram_term,
+          freq = trigram_counts$term_frequency,
+          max.words = 400, 
+          random.order = FALSE,
+          colors = brewer.pal(8, "Dark2"),
+          scale=c(5,0.5),
+          rot.per=0.35)
+```
+
+### Thoughts on Model Development
+
+The n-gram frequencies created as part of this exploratory analysis provide a good foundation for predictive model development.  Initially, a very simple model will be developed by creating probability lookup tables based on these n-grams.  
+
+The following are additional considerations for the development of the algorithm:
+
+1.  **Reducing the number of terms in the model to make the prediction more efficient:** Only the most frequent terms will be kept in the predictive model, synonyms and common misspellings will also be considered to reduce the number of terms further
+2.  **Evaluating the number of n-grams required:**  Understanding the efficiency trade-off between using more n-grams, the predictive accuracy and the runtime
+3.  **Smoothing the probabilities:**  Ensuring that all n-grams have a non-zero probability
+4.  **Evaluating the 'success' of the prediction:**  Designing a methodology for measuring the 'success' of the algorithm e.g. the % of times the algorithm can correctly predict the next word based on the first 1,2,3...words
+5.  **Predicting the next word probability based on unobserved n-grams:**  The algorithm will have to predict the next word based on some unobserved n-grams.  As recommended I will investigate the use of backoff models in order to handle these scenarios
+
+
+
